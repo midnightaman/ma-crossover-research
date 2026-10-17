@@ -1,0 +1,9 @@
+# Secrets. Never commit these.
+.env
+
+# Local environment and output
+.venv/
+logs/
+__pycache__/
+*.pyc
+.DS_Store

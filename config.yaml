@@ -1,0 +1,11 @@
+# Strategy parameters. Change these, re-run the backtest, THEN consider trading.
+symbol: AAPL
+
+fast_period: 20      # fast moving average, in completed sessions
+slow_period: 50      # slow moving average
+qty: 1               # shares per trade
+
+lookback_days: 200   # bars pulled for the live signal; must exceed slow_period
+slippage_bps: 2.0    # assumed slippage per side in basis points (backtest only)
+
+paper: true          # guard. Leave true.

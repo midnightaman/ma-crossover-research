@@ -1,0 +1,764 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moving-average crossover, tested</title>
+<meta name="description" content="A backtest of the moving-average crossover trading rule against simply buying and holding.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: light;
+    --paper: #f4f7fa;
+    --grid: #dfe7ef;
+    --grid-major: #cbd8e4;
+    --ink: #17283a;
+    --graphite: #586a7c;
+    --rule: #b6c5d4;
+    --fast: #1f5fd1;
+    --slow: #a2650a;
+    --buy: #17794e;
+    --sell: #c22d38;
+    --focus: #1f5fd1;
+
+    --sans: "Barlow", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --display: "Barlow Semi Condensed", "Barlow", "Avenir Next Condensed", "Arial Narrow", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --paper: #0e2338;
+      --grid: #15304a;
+      --grid-major: #1d3d5d;
+      --ink: #e4edf6;
+      --graphite: #93a9bf;
+      --rule: #2b4c6d;
+      --fast: #78abff;
+      --slow: #f0be4a;
+      --buy: #45d08f;
+      --sell: #ff7070;
+      --focus: #78abff;
+    }
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.55;
+    font-variant-numeric: tabular-nums;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- header ---------- */
+  .masthead {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 20px 0 18px; border-bottom: 1px solid var(--rule);
+  }
+  .masthead .name { font-family: var(--display); font-weight: 600; font-size: 17px; letter-spacing: 0.01em; }
+  .masthead .tools { display: flex; align-items: center; gap: 20px; font-size: 15px; }
+  .masthead a { color: var(--graphite); }
+  .masthead label { color: var(--graphite); margin-right: 8px; }
+  select {
+    font: inherit; color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 3px; padding: 4px 28px 4px 10px;
+  }
+
+  /* ---------- verdict ---------- */
+  .verdict { padding: 48px 0 28px; }
+  .verdict h1 {
+    font-family: var(--display); font-weight: 600;
+    font-size: clamp(34px, 5.2vw, 56px); line-height: 1.04; letter-spacing: -0.012em;
+    margin: 0 0 18px; max-width: 21ch; text-wrap: balance;
+  }
+  .verdict p { margin: 0; max-width: 62ch; color: var(--graphite); font-size: 19px; line-height: 1.5; }
+
+  /* ---------- the plate: the one bold element ---------- */
+  .plate {
+    border: 1px solid var(--rule);
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(var(--grid-major) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 120px 120px, 120px 120px, 24px 24px, 24px 24px;
+    background-position: -1px -1px;
+    padding: 20px 20px 16px;
+  }
+  .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 40px; margin-bottom: 14px; }
+  .control { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; }
+  .control label { font-weight: 600; font-size: 15px; white-space: nowrap; }
+  .control output { font-family: var(--display); font-weight: 600; font-size: 22px; min-width: 4.6em; text-align: right; }
+  .control output small { font-family: var(--sans); font-weight: 400; font-size: 14px; color: var(--graphite); margin-left: 3px; }
+  input[type="range"] { width: 100%; accent-color: var(--fast); }
+  #slow-range { accent-color: var(--slow); }
+
+  .key { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 14px; color: var(--graphite); margin: 0 0 6px; padding: 0; list-style: none; }
+  .key li { display: flex; align-items: center; gap: 7px; }
+  .swatch { width: 18px; height: 0; border-top: 2px solid; display: inline-block; }
+  .swatch.price { border-top-width: 1px; border-color: var(--graphite); }
+  .swatch.fast { border-color: var(--fast); }
+  .swatch.slow { border-color: var(--slow); }
+  .tri { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; display: inline-block; }
+  .tri.up { border-bottom: 9px solid var(--buy); }
+  .tri.down { border-top: 9px solid var(--sell); }
+
+  .chart-box { position: relative; height: 400px; }
+  .caption { margin: 12px 0 0; font-size: 15.5px; max-width: 78ch; }
+
+  /* ---------- body sections ---------- */
+  section.block { padding: 44px 0 0; }
+  h2 {
+    font-family: var(--display); font-weight: 600; font-size: 27px; line-height: 1.15;
+    margin: 0 0 14px; letter-spacing: -0.005em;
+  }
+  .prose p { margin: 0 0 14px; max-width: 64ch; }
+  .muted { color: var(--graphite); }
+
+  .two-col { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 56px; }
+
+  table { border-collapse: collapse; width: 100%; }
+  .compare th, .compare td { text-align: left; padding: 11px 0; border-bottom: 1px solid var(--rule); vertical-align: baseline; }
+  .compare thead th { font-weight: 600; font-size: 15px; color: var(--graphite); border-bottom-color: var(--ink); }
+  .compare tbody th { font-weight: 500; padding-right: 16px; }
+  .compare tbody th small { display: block; font-weight: 400; color: var(--graphite); font-size: 14px; }
+  .compare td { width: 26%; font-family: var(--display); font-size: 21px; font-weight: 500; color: var(--graphite); }
+  .compare td.better { color: var(--ink); font-weight: 700; }
+
+  .equity-box { position: relative; height: 300px; }
+
+  /* sweep grid */
+  .sweep-scroll { overflow-x: auto; }
+  .sweep { width: auto; min-width: 560px; border-collapse: separate; border-spacing: 4px; }
+  .sweep th { font-weight: 500; font-size: 14px; color: var(--graphite); padding: 4px 6px; text-align: center; }
+  .sweep th[scope="row"] { text-align: right; padding-right: 10px; }
+  .sweep thead th.axis { text-align: left; color: var(--ink); font-weight: 600; }
+  .sweep td { padding: 0; }
+  .sweep td.void { background: transparent; }
+  .cell {
+    display: block; width: 100%; min-width: 74px; padding: 12px 6px;
+    font: 500 15.5px/1 var(--sans); font-variant-numeric: tabular-nums;
+    color: var(--ink); border: 1px solid transparent; border-radius: 2px; cursor: pointer;
+  }
+  .cell[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); font-weight: 700; }
+  .cell:hover { border-color: var(--graphite); }
+  .sweep-note { font-size: 15px; color: var(--graphite); margin: 10px 0 0; max-width: 70ch; }
+
+  .trades-scroll { max-height: 380px; overflow: auto; border-top: 1px solid var(--ink); }
+  .trades th, .trades td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--rule); text-align: left; font-size: 15.5px; white-space: nowrap; }
+  .trades thead th { position: sticky; top: 0; background: var(--paper); color: var(--graphite); font-weight: 600; font-size: 14px; }
+  .trades td.num, .trades th.num { text-align: right; }
+  .gain { color: var(--buy); font-weight: 600; }
+  .loss { color: var(--sell); font-weight: 600; }
+
+  footer { margin: 56px 0 0; padding: 22px 0 48px; border-top: 1px solid var(--rule); font-size: 15px; color: var(--graphite); }
+  footer p { margin: 0 0 10px; max-width: 78ch; }
+  code { font-size: 0.92em; background: var(--grid); padding: 1px 5px; border-radius: 3px; color: var(--ink); }
+  .check-bad { color: var(--sell); font-weight: 600; }
+
+  .empty { padding: 72px 0; }
+  .empty h1 { font-family: var(--display); font-weight: 600; font-size: 38px; margin: 0 0 12px; }
+  .empty p { max-width: 60ch; }
+
+  a { color: var(--fast); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  [hidden] { display: none !important; }
+
+  @media (max-width: 820px) {
+    .controls { grid-template-columns: 1fr; }
+    .two-col { grid-template-columns: 1fr; gap: 36px; }
+    .chart-box { height: 300px; }
+    .equity-box { height: 240px; }
+    .verdict { padding: 34px 0 22px; }
+    .verdict p { font-size: 17.5px; }
+    .plate { padding: 14px 12px 12px; }
+  }
+  @media (max-width: 480px) {
+    .wrap { padding: 0 16px; }
+    .masthead { flex-wrap: wrap; }
+    .control { grid-template-columns: 1fr auto; }
+    .control input { grid-column: 1 / -1; grid-row: 2; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="name">Moving-average crossover, tested</div>
+    <div class="tools">
+      <span id="symbol-picker" hidden>
+        <label for="symbol">Stock</label><select id="symbol"></select>
+      </span>
+      <span id="symbol-static" hidden></span>
+      <a id="repo-link" href="#" hidden>Code on GitHub</a>
+    </div>
+  </header>
+
+  <!-- Shown only when docs/data.js is missing -->
+  <section class="empty" id="empty" hidden>
+    <h1>No results to show yet</h1>
+    <p>This page reads its numbers from <code>docs/data.js</code>, which doesn’t exist yet. In the project folder, run:</p>
+    <p><code>python -m bot.run export --symbols AAPL SPY QQQ</code></p>
+    <p>Then reload this page.</p>
+  </section>
+
+  <main id="app" hidden>
+    <section class="verdict">
+      <h1 id="headline"></h1>
+      <p id="lede"></p>
+    </section>
+
+    <figure class="plate" style="margin:0">
+      <div class="controls">
+        <div class="control">
+          <label for="fast-range">Fast average</label>
+          <input id="fast-range" type="range" min="2" max="100" step="1">
+          <output id="fast-out" for="fast-range"></output>
+        </div>
+        <div class="control">
+          <label for="slow-range">Slow average</label>
+          <input id="slow-range" type="range" min="5" max="250" step="1">
+          <output id="slow-out" for="slow-range"></output>
+        </div>
+      </div>
+      <ul class="key" aria-hidden="true">
+        <li><span class="swatch price"></span>Price</li>
+        <li><span class="swatch fast"></span><span id="key-fast"></span></li>
+        <li><span class="swatch slow"></span><span id="key-slow"></span></li>
+        <li><span class="tri up"></span>Bought</li>
+        <li><span class="tri down"></span>Sold</li>
+      </ul>
+      <div class="chart-box"><canvas id="price-chart" role="img" aria-label="Closing price with the fast and slow moving averages and the rule’s buy and sell points"></canvas></div>
+      <figcaption class="caption" id="caption" aria-live="polite"></figcaption>
+    </figure>
+
+    <section class="block two-col">
+      <div class="prose">
+        <h2>How the rule works</h2>
+        <p>Every day, take the average of the last <b data-fast></b> closing prices. That’s the fast line. Do the same with the last <b data-slow></b> closes and you get the slow line. The fast line covers fewer days, so it follows the price closely; the slow line is smoother and lags behind.</p>
+        <p>When the fast line crosses above the slow one, recent prices are running ahead of the longer trend, so the rule buys. When it crosses back below, the rule sells everything and waits in cash for the next cross.</p>
+        <p>Bigger numbers make both lines slower: fewer trades, later exits. Smaller numbers react sooner but get fooled more often when the price is just bouncing sideways. A setting written as 30/75 is the same rule with a 30-day and a 75-day line.</p>
+        <p>The catch is that every sale is a bet the price will keep falling. In a stock that mostly rises, many of those bets lose, and the rule ends up buying back higher than it sold.</p>
+      </div>
+      <div>
+        <h2 id="compare-title"></h2>
+        <table class="compare">
+          <thead><tr><th scope="col"><span class="sr">Measure</span></th><th scope="col" id="compare-rule-col"></th><th scope="col">Buy and hold</th></tr></thead>
+          <tbody id="compare-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2>What $10,000 became</h2>
+      <p class="muted" id="equity-note" style="margin:-4px 0 14px; max-width:70ch"></p>
+      <ul class="key" aria-hidden="true">
+        <li><span class="swatch fast"></span><span id="key-rule"></span></li>
+        <li><span class="swatch" style="border-color:var(--ink)"></span>Buy and hold</li>
+      </ul>
+      <div class="equity-box"><canvas id="equity-chart" role="img" aria-label="Account value over time for the rule and for buying and holding"></canvas></div>
+    </section>
+
+    <section class="block">
+      <h2>Every setting tested</h2>
+      <p class="muted" style="margin:-4px 0 12px; max-width:70ch">Each square is one fast/slow pair run over the same period, showing its total return. Select a square to load it into the chart.</p>
+      <div class="sweep-scroll"><table class="sweep" id="sweep"></table></div>
+      <p class="sweep-note" id="sweep-note"></p>
+    </section>
+
+    <section class="block">
+      <h2>Trades for this setting</h2>
+      <p class="muted" id="trades-note" style="margin:-4px 0 12px"></p>
+      <div class="trades-scroll">
+        <table class="trades">
+          <thead><tr><th scope="col">Bought</th><th scope="col" class="num">Price</th><th scope="col">Sold</th><th scope="col" class="num">Price</th><th scope="col" class="num">Result</th></tr></thead>
+          <tbody id="trades-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer id="footer" hidden>
+    <p>How the numbers are made: after a crossover at one day’s close, the trade fills at the next day’s open, with <span id="slip"></span> of slippage each way. Long only, no leverage, starting with $10,000. Daily bars from Alpaca’s IEX feed, adjusted for splits and dividends.</p>
+    <p id="check"></p>
+    <p id="generated"></p>
+    <p>This is a research notebook from a paper trading account. It is not financial advice.</p>
+  </footer>
+
+</div>
+
+<script src="data.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<script>
+(() => {
+  "use strict";
+
+  // Set this to your repository URL to show a "Code on GitHub" link.
+  const REPO_URL = "";
+
+  const DATA = window.BACKTEST_DATA;
+  const $ = (id) => document.getElementById(id);
+
+  if (!DATA || !DATA.symbols || !Object.keys(DATA.symbols).length) {
+    $("empty").hidden = false;
+    return;
+  }
+  $("app").hidden = false;
+  $("footer").hidden = false;
+
+  if (REPO_URL) { $("repo-link").href = REPO_URL; $("repo-link").hidden = false; }
+
+  // ---------- formatting ----------
+  const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+  const money0 = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  const monthYear = new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+  const fullDate = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  const toDate = (s) => new Date(s + "T00:00:00Z");
+  const minus = (s) => s.replace("-", "\u2212");
+  const pct = (v, digits = 1) => minus((v > 0 ? "+" : "") + v.toFixed(digits) + "%");
+  const plainPct = (v, digits = 1) => minus(v.toFixed(digits) + "%");
+  const round2 = (v) => Math.round(v * 100) / 100;
+
+  // ---------- the strategy, mirrored from bot/strategy.py + bot/backtest.py ----------
+  function rollingMean(values, n) {
+    const out = new Array(values.length).fill(null);
+    let sum = 0;
+    for (let i = 0; i < values.length; i++) {
+      sum += values[i];
+      if (i >= n) sum -= values[i - n];
+      if (i >= n - 1) out[i] = sum / n;
+    }
+    return out;
+  }
+
+  // 1 = buy, -1 = sell, 0 = hold. A crossover is a change of sign between bars.
+  function signalAt(fastMA, slowMA, i) {
+    if (i < 1) return 0;
+    const ps = slowMA[i - 1], cs = slowMA[i];
+    if (ps === null || cs === null) return 0;
+    const prevDiff = fastMA[i - 1] - ps;
+    const currDiff = fastMA[i] - cs;
+    if (prevDiff <= 0 && currDiff > 0) return 1;
+    if (prevDiff >= 0 && currDiff < 0) return -1;
+    return 0;
+  }
+
+  function backtest(series, fast, slow) {
+    const { open, close } = series;
+    const fastMA = rollingMean(close, fast);
+    const slowMA = rollingMean(close, slow);
+    const slip = DATA.slippage_bps / 10000;
+    let cash = DATA.starting_cash, shares = 0;
+    const trades = [];
+    const equity = new Array(close.length);
+
+    for (let i = 0; i < close.length; i++) {
+      // Act on the previous bar's signal at this bar's open.
+      const sig = i >= 1 ? signalAt(fastMA, slowMA, i - 1) : 0;
+      if (sig === 1 && shares === 0) {
+        const fill = open[i] * (1 + slip);
+        shares = cash / fill; cash = 0;
+        trades.push({ entry: i, entryPrice: fill, exit: null, exitPrice: null });
+      } else if (sig === -1 && shares > 0) {
+        const fill = open[i] * (1 - slip);
+        cash = shares * fill; shares = 0;
+        const t = trades[trades.length - 1];
+        t.exit = i; t.exitPrice = fill;
+      }
+      equity[i] = cash + shares * close[i];
+    }
+    const buyHold = close.map((c) => DATA.starting_cash * c / close[0]);
+    return { fastMA, slowMA, trades, equity, buyHold };
+  }
+
+  const totalReturn = (eq) => (eq[eq.length - 1] / eq[0] - 1) * 100;
+  function maxDrawdown(eq) {
+    let peak = -Infinity, worst = 0;
+    for (const v of eq) { peak = Math.max(peak, v); worst = Math.min(worst, (v - peak) / peak); }
+    return worst * 100;
+  }
+  function sharpe(eq) {
+    const r = [];
+    for (let i = 1; i < eq.length; i++) r.push(eq[i] / eq[i - 1] - 1);
+    if (r.length < 2) return 0;
+    const mean = r.reduce((a, b) => a + b, 0) / r.length;
+    const variance = r.reduce((a, b) => a + (b - mean) ** 2, 0) / (r.length - 1);
+    const sd = Math.sqrt(variance);
+    return sd === 0 ? 0 : (mean / sd) * Math.sqrt(252);
+  }
+  function summarize(res) {
+    const closed = res.trades.filter((t) => t.exitPrice !== null);
+    const pnl = closed.map((t) => (t.exitPrice / t.entryPrice - 1) * 100);
+    return {
+      trades: closed.length,
+      wins: pnl.filter((p) => p > 0).length,
+      winRate: closed.length ? (100 * pnl.filter((p) => p > 0).length) / closed.length : 0,
+      avgTrade: closed.length ? pnl.reduce((a, b) => a + b, 0) / closed.length : 0,
+      ret: totalReturn(res.equity),
+      bhRet: totalReturn(res.buyHold),
+      dd: maxDrawdown(res.equity),
+      bhDd: maxDrawdown(res.buyHold),
+      sharpe: sharpe(res.equity),
+      bhSharpe: sharpe(res.buyHold),
+      open: res.trades.length > 0 && res.trades[res.trades.length - 1].exitPrice === null,
+    };
+  }
+
+  // ---------- state ----------
+  const state = {
+    symbol: DATA.symbols[DATA.default_symbol] ? DATA.default_symbol : Object.keys(DATA.symbols)[0],
+    fast: DATA.fast,
+    slow: DATA.slow,
+  };
+  const series = () => DATA.symbols[state.symbol];
+
+  // ---------- symbol picker ----------
+  const syms = Object.keys(DATA.symbols);
+  if (syms.length > 1) {
+    const sel = $("symbol");
+    for (const s of syms) sel.add(new Option(s, s, false, s === state.symbol));
+    sel.addEventListener("change", () => { state.symbol = sel.value; renderSymbol(); });
+    $("symbol-picker").hidden = false;
+  } else {
+    $("symbol-static").textContent = state.symbol;
+    $("symbol-static").hidden = false;
+  }
+
+  // ---------- sliders ----------
+  const fastRange = $("fast-range"), slowRange = $("slow-range");
+  fastRange.value = state.fast; slowRange.value = state.slow;
+  fastRange.addEventListener("input", () => {
+    state.fast = +fastRange.value;
+    if (state.fast >= state.slow) { state.slow = Math.min(250, state.fast + 1); slowRange.value = state.slow; }
+    update();
+  });
+  slowRange.addEventListener("input", () => {
+    state.slow = +slowRange.value;
+    if (state.fast >= state.slow) { state.fast = Math.max(2, state.slow - 1); fastRange.value = state.fast; }
+    update();
+  });
+  function setPair(fast, slow) {
+    state.fast = fast; state.slow = slow;
+    fastRange.value = fast; slowRange.value = slow;
+    update();
+  }
+
+  // ---------- charts ----------
+  const hasChart = typeof window.Chart !== "undefined";
+  let priceChart = null, equityChart = null;
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  function buildCharts() {
+    if (!hasChart) return;
+    if (priceChart) priceChart.destroy();
+    if (equityChart) equityChart.destroy();
+
+    Chart.defaults.font.family = css("--sans").replace(/"/g, "");
+    Chart.defaults.font.size = 13;
+    Chart.defaults.color = css("--graphite");
+
+    const tickLimit = (w) => Math.max(3, Math.min(8, Math.floor(w / 115)));
+    const xTicks = {
+      maxTicksLimit: tickLimit($("price-chart").parentElement.clientWidth), autoSkip: true, maxRotation: 0,
+      callback(value) { return monthYear.format(toDate(this.getLabelForValue(value))); },
+    };
+    const tooltip = {
+      filter: (item) => item.raw !== null && item.raw !== undefined,
+      callbacks: {
+        title: (items) => items.length ? fullDate.format(toDate(items[0].label)) : "",
+        label: (item) => ` ${item.dataset.label}: ${money.format(item.raw)}`,
+      },
+    };
+    const common = {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      onResize: (chart, size) => { chart.options.scales.x.ticks.maxTicksLimit = tickLimit(size.width); },
+      interaction: { mode: "index", intersect: false },
+      plugins: { legend: { display: false }, tooltip },
+      elements: { point: { radius: 0, hoverRadius: 3 }, line: { tension: 0 } },
+    };
+
+    priceChart = new Chart($("price-chart"), {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [
+          { label: "Price", data: [], borderColor: css("--graphite"), borderWidth: 1 },
+          { label: "Fast", data: [], borderColor: css("--fast"), borderWidth: 2 },
+          { label: "Slow", data: [], borderColor: css("--slow"), borderWidth: 2 },
+          { label: "Bought", data: [], showLine: false, pointStyle: "triangle", pointRadius: 6, pointHoverRadius: 7,
+            backgroundColor: css("--buy"), borderColor: css("--buy") },
+          { label: "Sold", data: [], showLine: false, pointStyle: "triangle", rotation: 180, pointRadius: 6, pointHoverRadius: 7,
+            backgroundColor: css("--sell"), borderColor: css("--sell") },
+        ],
+      },
+      options: {
+        ...common,
+        scales: {
+          x: { ticks: xTicks, grid: { display: false }, border: { color: css("--rule") } },
+          y: { ticks: { callback: (v) => money0.format(v) }, grid: { display: false }, border: { color: css("--rule") } },
+        },
+      },
+    });
+
+    equityChart = new Chart($("equity-chart"), {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [
+          { label: "Rule", data: [], borderColor: css("--fast"), borderWidth: 2 },
+          { label: "Buy and hold", data: [], borderColor: css("--ink"), borderWidth: 1.5 },
+        ],
+      },
+      options: {
+        ...common,
+        scales: {
+          x: { ticks: xTicks, grid: { display: false }, border: { color: css("--rule") } },
+          y: { ticks: { callback: (v) => money0.format(v) }, grid: { color: css("--grid-major") }, border: { color: css("--rule") } },
+        },
+      },
+    });
+  }
+
+  // ---------- rendering ----------
+  function renderSymbol() {
+    const s = series();
+    const sym = state.symbol;
+    const bh = s.python_check.buy_hold_return_pct;
+    const n = s.sweep.length;
+    const beat = s.sweep.filter((c) => c.return_pct > bh).length;
+    const start = monthYear.format(toDate(s.dates[0]));
+    const end = monthYear.format(toDate(s.dates[s.dates.length - 1]));
+
+    $("headline").textContent =
+      beat === 0 ? `Buying ${sym} and holding it beat all ${n} crossover settings I tested.`
+      : beat === n ? `Every one of the ${n} crossover settings beat simply holding ${sym}.`
+      : `${beat} of ${n} crossover settings beat simply holding ${sym}.`;
+
+    $("lede").textContent =
+      `From ${start} to ${end}, buying ${sym} once and doing nothing returned ${pct(bh)}. ` +
+      `The rule below switches between owning the stock and holding cash whenever two moving averages cross. ` +
+      `Drag the sliders to change the averages and see what the rule would have done.`;
+
+    $("symbol-static").textContent = sym;
+    renderSweep();
+    renderCheck();
+    update();
+  }
+
+  function renderSweep() {
+    const s = series();
+    const bh = s.python_check.buy_hold_return_pct;
+    const byKey = new Map(s.sweep.map((c) => [`${c.fast}/${c.slow}`, c]));
+    const gaps = s.sweep.map((c) => c.return_pct - bh);
+    const worst = Math.max(1, ...gaps.map((g) => -g));
+    const best = Math.max(1, ...gaps);
+
+    const t = $("sweep");
+    t.innerHTML = "";
+    const head = t.createTHead().insertRow();
+    const corner = document.createElement("th");
+    corner.className = "axis"; corner.scope = "col";
+    corner.textContent = "Fast \u2193 Slow \u2192";
+    head.appendChild(corner);
+    for (const slow of DATA.slow_grid) {
+      const th = document.createElement("th"); th.scope = "col"; th.textContent = slow; head.appendChild(th);
+    }
+    const body = t.createTBody();
+    for (const fast of DATA.fast_grid) {
+      const row = body.insertRow();
+      const th = document.createElement("th"); th.scope = "row"; th.textContent = fast; row.appendChild(th);
+      for (const slow of DATA.slow_grid) {
+        const td = row.insertCell();
+        const c = byKey.get(`${fast}/${slow}`);
+        if (!c) { td.className = "void"; continue; }
+        const gap = c.return_pct - bh;
+        const strength = gap < 0 ? 12 + 58 * (-gap / worst) : 12 + 58 * (gap / best);
+        const tone = gap < 0 ? "--sell" : "--buy";
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "cell";
+        b.dataset.fast = fast; b.dataset.slow = slow;
+        b.style.background = `color-mix(in srgb, var(${tone}) ${strength.toFixed(0)}%, var(--paper))`;
+        b.textContent = pct(c.return_pct, 0);
+        b.setAttribute("aria-label",
+          `Fast ${fast}, slow ${slow}: ${pct(c.return_pct)} over ${c.trades} trades, ` +
+          (gap < 0 ? `${plainPct(-gap)} behind buy and hold` : `${plainPct(gap)} ahead of buy and hold`));
+        b.addEventListener("click", () => setPair(fast, slow));
+        td.appendChild(b);
+      }
+    }
+
+    const beat = s.sweep.filter((c) => c.return_pct > bh).length;
+    $("sweep-note").textContent =
+      `Buying and holding returned ${pct(bh)}. Red squares fell short of that and green squares beat it; ` +
+      `the darker the square, the bigger the gap. ${beat === 0 ? "None of them beat it." : `${beat} of ${s.sweep.length} beat it.`} ` +
+      `Before trusting a green square, check its neighbours: a real edge holds up when the numbers change a little.`;
+  }
+
+  function renderCheck() {
+    const s = series();
+    const pc = s.python_check;
+    const js = summarize(backtest(s, pc.fast, pc.slow));
+    const ok = Math.abs(round2(js.ret) - pc.strategy_return_pct) <= 0.011
+      && js.trades === pc.trades
+      && Math.abs(round2(js.sharpe) - pc.sharpe) <= 0.011;
+    const el = $("check");
+    if (ok) {
+      el.className = "";
+      el.textContent = `Consistency check: this page recomputes the ${pc.fast}/${pc.slow} setting in your browser and matches the Python backtest (${pct(pc.strategy_return_pct, 2)}, ${pc.trades} trades).`;
+    } else {
+      el.className = "check-bad";
+      el.textContent = `Consistency check failed for ${pc.fast}/${pc.slow}: Python says ${pct(pc.strategy_return_pct, 2)} over ${pc.trades} trades, ` +
+        `the browser says ${pct(js.ret, 2)} over ${js.trades} trades. The two implementations have drifted apart.`;
+    }
+    $("slip").textContent = `${DATA.slippage_bps} basis points`;
+    $("generated").textContent = `Results generated ${fullDate.format(new Date(DATA.generated_at))} with python -m bot.run export.`;
+  }
+
+  function update() {
+    const s = series();
+    const { fast, slow } = state;
+    const res = backtest(s, fast, slow);
+    const sum = summarize(res);
+    const last = s.dates.length - 1;
+
+    $("fast-out").innerHTML = `${fast}<small>days</small>`;
+    $("slow-out").innerHTML = `${slow}<small>days</small>`;
+    $("key-fast").textContent = `${fast}-day average`;
+    $("key-slow").textContent = `${slow}-day average`;
+    $("key-rule").textContent = `Crossover rule, ${fast}/${slow}`;
+    document.querySelectorAll("[data-fast]").forEach((el) => { if (el.tagName === "B") el.textContent = fast; });
+    document.querySelectorAll("[data-slow]").forEach((el) => { if (el.tagName === "B") el.textContent = slow; });
+
+    // Caption: where the two lines sit on the last day.
+    const fv = res.fastMA[last], sv = res.slowMA[last];
+    if (fv !== null && sv !== null) {
+      const above = fv > sv;
+      $("caption").textContent =
+        `On ${fullDate.format(toDate(s.dates[last]))}, the ${fast}-day average was ${money.format(fv)} and the ` +
+        `${slow}-day average was ${money.format(sv)}. The fast line is ${above ? "above" : "below"} the slow one, ` +
+        `so the rule wants to be ${above ? "holding the stock" : "in cash"}.`;
+    } else {
+      $("caption").textContent = `There isn’t enough history to compute a ${slow}-day average.`;
+    }
+
+    // Comparison table.
+    $("compare-title").textContent = `${fast}/${slow} against buying and holding`;
+    $("compare-rule-col").textContent = `Rule, ${fast}/${slow}`;
+    // Decide "better" on the values as displayed, so a visible tie marks neither side.
+    const better = (a, b, digits) => {
+      const x = +a.toFixed(digits), y = +b.toFixed(digits);
+      return x === y ? null : x > y;
+    };
+    const ratio = (v) => minus(v.toFixed(2));
+    const rows = [
+      ["Total return", "", pct(sum.ret), pct(sum.bhRet), better(sum.ret, sum.bhRet, 1)],
+      ["Worst fall from a high", "Max drawdown", plainPct(sum.dd), plainPct(sum.bhDd), better(sum.dd, sum.bhDd, 1)],
+      ["Return for the risk taken", "Sharpe ratio, higher is better", ratio(sum.sharpe), ratio(sum.bhSharpe), better(sum.sharpe, sum.bhSharpe, 2)],
+      ["Times in and out", "", `${sum.trades} trades`, "Bought once", null],
+    ];
+    const tb = $("compare-body");
+    tb.innerHTML = "";
+    for (const [label, sub, a, b, ruleBetter] of rows) {
+      const tr = tb.insertRow();
+      const th = document.createElement("th"); th.scope = "row"; th.textContent = label;
+      if (sub) { const sm = document.createElement("small"); sm.textContent = sub; th.appendChild(sm); }
+      tr.appendChild(th);
+      const ta = tr.insertCell(), tbb = tr.insertCell();
+      ta.textContent = a; tbb.textContent = b;
+      if (ruleBetter === true) { ta.classList.add("better"); ta.insertAdjacentHTML("beforeend", '<span class="sr"> (better)</span>'); }
+      if (ruleBetter === false) { tbb.classList.add("better"); tbb.insertAdjacentHTML("beforeend", '<span class="sr"> (better)</span>'); }
+    }
+
+    // Equity note.
+    const endRule = res.equity[last], endBh = res.buyHold[last];
+    $("equity-note").textContent =
+      `$10,000 run through the ${fast}/${slow} rule ended at ${money0.format(endRule)}. ` +
+      `The same $10,000 left in ${state.symbol} ended at ${money0.format(endBh)}. ` +
+      `Flat stretches in the blue line are the times the rule was sitting in cash.`;
+
+    // Trades table.
+    const tbody = $("trades-body");
+    tbody.innerHTML = "";
+    for (const t of res.trades.slice().reverse()) {
+      const tr = tbody.insertRow();
+      const r = t.exitPrice === null ? null : (t.exitPrice / t.entryPrice - 1) * 100;
+      const cells = [
+        fullDate.format(toDate(s.dates[t.entry])),
+        money.format(t.entryPrice),
+        t.exit === null ? "Still holding" : fullDate.format(toDate(s.dates[t.exit])),
+        t.exitPrice === null ? "" : money.format(t.exitPrice),
+        r === null ? "Open" : pct(r),
+      ];
+      cells.forEach((v, i) => {
+        const td = tr.insertCell(); td.textContent = v;
+        if (i === 1 || i === 3 || i === 4) td.className = "num";
+        if (i === 4 && r !== null) td.classList.add(r > 0 ? "gain" : "loss");
+      });
+    }
+    if (!res.trades.length) {
+      const td = tbody.insertRow().insertCell(); td.colSpan = 5;
+      td.textContent = "The averages never crossed upward, so the rule never bought.";
+    }
+    $("trades-note").textContent = sum.trades
+      ? `${sum.trades} completed trades, ${sum.wins} of them profitable (${sum.winRate.toFixed(0)}%). The average trade returned ${pct(sum.avgTrade)}.` +
+        (sum.open ? " One more is still open." : "")
+      : (sum.open ? "One trade is open and none have completed yet." : "No trades for this setting.");
+
+    // Sweep selection.
+    document.querySelectorAll(".cell").forEach((b) => {
+      b.setAttribute("aria-pressed", String(+b.dataset.fast === fast && +b.dataset.slow === slow));
+    });
+
+    // Charts.
+    if (hasChart) {
+      const buys = new Array(s.close.length).fill(null);
+      const sells = new Array(s.close.length).fill(null);
+      for (const t of res.trades) {
+        buys[t.entry] = t.entryPrice;
+        if (t.exit !== null) sells[t.exit] = t.exitPrice;
+      }
+      const pd = priceChart.data;
+      pd.labels = s.dates;
+      pd.datasets[0].data = s.close;
+      pd.datasets[1].data = res.fastMA; pd.datasets[1].label = `${fast}-day average`;
+      pd.datasets[2].data = res.slowMA; pd.datasets[2].label = `${slow}-day average`;
+      pd.datasets[3].data = buys;
+      pd.datasets[4].data = sells;
+      priceChart.update("none");
+
+      const ed = equityChart.data;
+      ed.labels = s.dates;
+      ed.datasets[0].data = res.equity; ed.datasets[0].label = `Rule, ${fast}/${slow}`;
+      ed.datasets[1].data = res.buyHold;
+      equityChart.update("none");
+    }
+  }
+
+  if (!hasChart) {
+    document.querySelectorAll(".chart-box, .equity-box").forEach((el) => {
+      el.style.height = "auto";
+      el.innerHTML = '<p class="muted">The charts need an internet connection to load Chart.js. The tables below still work.</p>';
+    });
+  }
+
+  buildCharts();
+  renderSymbol();
+
+  // Rebuild charts with the right colours when the system theme changes.
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { buildCharts(); update(); });
+
+  // Exposed for testing: window.__crossover.backtest(...)
+  window.__crossover = { backtest, summarize, setPair, state };
+})();
+</script>
+</body>
+</html>
