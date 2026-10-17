@@ -2,7 +2,7 @@ Moving-average crossover, tested
 
 A backtester and paper trading bot for the moving-average crossover strategy on US stocks, with an interactive site that compares it against simply buying and holding.
 
-Live results: https://midnightaman.github.io/trading-bot/
+Live results: https://midnightaman.github.io/ma-crossover-research/
 
 The result
 
@@ -21,8 +21,8 @@ Run it yourself
 Requires Python 3.10+ and a free Alpaca paper trading account (email signup, no funding needed).
 
 bash
-git clone https://github.com/midnightaman/trading-bot.git
-cd trading-bot
+git clone https://github.com/midnightaman/ma-crossover-research.git
+cd ma-crossover-research
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
@@ -80,7 +80,7 @@ The bot is meant to run once each weekday morning after the US market opens. It 
 
 cron
 # 09:35 New York time, weekdays (13:35 UTC during US daylight saving time)
-35 13 * * 1-5 cd ~/trading-bot && .venv/bin/python -m bot.run trade --live >> logs/cron.log 2>&1
+35 13 * * 1-5 cd ~/ma-crossover-research && .venv/bin/python -m bot.run trade --live >> logs/cron.log 2>&1
 Roadmap
  Backtester, parameter sweep and paper trading runner
  Interactive results site on GitHub Pages
